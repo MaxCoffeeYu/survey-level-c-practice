@@ -9,7 +9,8 @@
   const X = (f, s, deps) => ({ f, s, deps: deps || [] });
   const EX = {};
 
-  EX[1] = (k, V, a) => {
+  /** 四題（三部分與完整試題）欄位鍵不重複，共用同一份說明 */
+  const ex = (k, V, a) => {
     if (k === 'A_M' || k === 'B_M') {
       const p = k[0];
       return X('正倒鏡平均 = [正鏡 + (倒鏡 ± 180°)] / 2', `[${d(V(p + '_L'))} + (${d(V(p + '_R'))} − 180°)] / 2`, [p + '_L', p + '_R']);
@@ -40,5 +41,6 @@
     return null;
   };
 
+  G.TASKS.forEach(t => { EX[t.id] = ex; });
   G.EXPLAIN = EX;
 })(window);

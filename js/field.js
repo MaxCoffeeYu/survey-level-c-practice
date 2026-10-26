@@ -16,7 +16,6 @@
   const SK = () => G.FIELD_STAKE; // 單曲線放樣（試題五）擴充模組
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
-  const SUPPORT = [1];
   const ROD_LEN = 4.0;          // 水準尺長（m）
   const ROD_W = 0.077;          // 尺面寬（m，依教具比例）
   const MAX_SIGHT = 80;         // 超過此距離無法清楚讀尺
@@ -44,7 +43,9 @@
 
   /* ---------------- 狀態與進入 ---------------- */
   const fs = () => A().st.field;
-  function supports(t) { return SUPPORT.includes(t.id); }
+  /** 僅量距的題目沒有測站，不需架設儀器 */
+  const hasStations = () => Object.keys(fs().scene.stations).length > 0;
+  function supports(t) { return !!SCENES[t.id]; }
 
   function truthOf(t, sc) {
     try { return Object.assign(t.solve(A().makeV(Object.assign({}, sc.known, sc.perfect))).ans, sc.override); }
@@ -73,7 +74,7 @@
     if (st.field.ended) { toOffice(false); return; }
     renderField();
     if (!st.submitted) app.startTimer();
-    if (!st.field.cur) openMap(true);
+    if (!st.field.cur && hasStations()) openMap(true);
   }
   function reset() {
     const app = A(); app.stopTimer(); app.store.del(app.draftKey());
@@ -134,11 +135,11 @@
         <div class="fld-stage" id="stage">
           <svg id="pano" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg>
           <div class="fld-status">
-            <span>${cur ? `測站：<b>${esc(cur.label)}</b>　${f.cur.leveled ? '已整置' : '<span style="color:#c62828">尚未整置</span>'}` : '尚未架設儀器'}</span>
+            <span>${cur ? `測站：<b>${esc(cur.label)}</b>　${f.cur.leveled ? '已整置' : '<span style="color:#c62828">尚未整置</span>'}` : hasStations() ? '尚未架設儀器' : '捲尺量距（不需架設儀器）'}</span>
             ${f.scene.phases ? `<span class="seg-s"><button data-phase="f" class="${f.phase === 'f' ? 'on' : ''}">往測</button><button data-phase="b" class="${f.phase === 'b' ? 'on' : ''}">返測</button></span>` : ''}
           </div>
           <div class="fld-map" id="miniMap" title="點選開啟場地圖並移站"></div>
-          <button class="btn fld-move" id="btnMove">移站／選擇測站</button>
+          ${hasStations() ? '<button class="btn fld-move" id="btnMove">移站／選擇測站</button>' : ''}
           ${f.scene.tapes && f.scene.tapes.length ? '<button class="btn fld-tape" id="btnTape">捲尺量測</button>' : ''}
           ${f.scene.slots ? '<button class="btn fld-plate" id="btnPlate">放置尺墊</button>' : ''}
           ${f.scene.kind === 'stake' ? SK().buttons() : ''}
@@ -152,7 +153,7 @@
     $('#btnTimer').onclick = () => (st.timer.running ? app.stopTimer() : app.startTimer());
     app.renderTimer();
     $('#btnEnd').onclick = f.scene.kind === 'stake' ? () => SK().finish(false) : endField;
-    $('#btnMove').onclick = () => openMap(false);
+    if ($('#btnMove')) $('#btnMove').onclick = () => openMap(false);
     if ($('#btnTape')) $('#btnTape').onclick = () => TH().tapeMenu();
     if ($('#btnPlate')) $('#btnPlate').onclick = () => G.FIELD_C.plateMenu();
     $('#miniMap').onclick = () => openMap(false);
@@ -221,7 +222,7 @@
     }
     g += `<line x1="0" y1="${HOR}" x2="${W}" y2="${HOR}" stroke="#6f8f55" stroke-width="1"/>`;
     if (!f.cur) {
-      g += `<text x="${W / 2}" y="${HOR + 120}" text-anchor="middle" font-size="26" fill="#fff" stroke="#000" stroke-width="0.6">請先點左上角場地圖，選擇測站架設儀器</text>`;
+      g += `<text x="${W / 2}" y="${HOR + 120}" text-anchor="middle" font-size="26" fill="#fff" stroke="#000" stroke-width="0.6">${hasStations() ? '請先點左上角場地圖，選擇測站架設儀器' : '請按「捲尺量測」量測 E → F 水平距離'}</text>`;
       svg.innerHTML = g; $('#hdg').textContent = ''; return;
     }
     const sc = f.scene, s = sc.stations[f.cur.id];

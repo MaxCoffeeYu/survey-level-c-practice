@@ -16,10 +16,12 @@
 
   const st = { task: null, mode: null, defs: {}, labels: {}, vals: {}, sc: null, truth: null, submitted: false, guide: null, timer: null, sol: null };
 
+  // 與乙級網站同在 github.io 網域，localStorage 須以不同前綴區隔（題號 1 會重複）
+  const PFX = 'c3_';
   const store = {
-    get(k, d) { try { const v = localStorage.getItem('v3_' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem('v3_' + k, JSON.stringify(v)); } catch (e) { /* 無法儲存時略過 */ } },
-    del(k) { try { localStorage.removeItem('v3_' + k); } catch (e) { /* 略過 */ } }
+    get(k, d) { try { const v = localStorage.getItem(PFX + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(PFX + k, JSON.stringify(v)); } catch (e) { /* 無法儲存時略過 */ } },
+    del(k) { try { localStorage.removeItem(PFX + k); } catch (e) { /* 略過 */ } }
   };
 
   /* ---------------- 共用工具 ---------------- */
@@ -52,28 +54,49 @@
     stopTimer(); hideTip();
     const m = location.hash.match(/^#\/t(\d+)(?:\/(\w+))?/);
     const t = m && G.TASKS.find(x => x.id === +m[1]);
-    if (!t) return viewMode(G.TASKS[0]);
+    if (!t) return viewHome();
     if (!m[2] || !MODES[m[2]]) return viewMode(t);
     if (m[2] === 'field') return (G.FIELD && G.FIELD.supports(t)) ? G.FIELD.enter(t) : viewMode(t, true);
     return viewWork(t, m[2]);
   }
   window.addEventListener('hashchange', route);
 
-  /* ---------------- 首頁：丙級只有一份試題，直接選擇練習模式 ---------------- */
-  function viewMode(t, fieldMsg) {
+  /* ---------------- 首頁：丙級只有一份試題，拆成三部分分開練習（另有完整試題） ---------------- */
+  const PART_DESC = {
+    ang: '於 P 點整置經緯儀，以 A 為後視方向、B 為前視方向，採用單角法正倒鏡觀測水平角 ∠APB 一測回，讀數至秒。',
+    lev: '假設 C 點樁頂高程為 30.000m，於 C、D 中間設轉點 TP1 往測，再設轉點 TP2 返測（TP2 不可與 TP1 同一位置且不可固定），計算往返高程差較差的絕對值及 D 點平均高程。',
+    dist: '於 F 點利用捲尺測量 E、F 兩點間之水平距離三次（服務人員將捲尺零公尺對準 E 點），計算平均值。'
+  };
+  const maxOf = t => t.rubric.reduce((s, r) => s + r[2], 0);
+  function viewHome() {
     document.title = '測量丙級術科練習';
+    const full = G.TASKS.find(t => t.parts.length > 1);
     $('#app').innerHTML = `
-      <div class="bar"><div class="bar-in"><h1 class="serif">技術士技能檢定測量丙級　術科練習<small>試題編號 ${t.code}　檢定時間 ${t.time} 分鐘（含觀測與計算）</small></h1>
-        <button class="btn" id="btnPrintBlank">列印空白答案紙</button></div></div>
+      <div class="bar"><div class="bar-in"><h1 class="serif">技術士技能檢定測量丙級　術科練習<small>試題編號 ${full.code}　檢定時間 ${full.time} 分鐘（含觀測與計算）</small></h1></div></div>
       <div class="wrap">
         <div class="paper"><div class="paper-title">試題說明</div>
           <p class="note" style="text-align:center;margin-top:-4px">依「(1100701 起報檢者適用) 丙級測量技術士術科」應檢參考資料</p>
-          <ol class="parts">
-            <li><b>經緯儀水平角測量</b>：於 P 點整置經緯儀，以 A 為後視方向、B 為前視方向，採用單角法正倒鏡觀測水平角 ∠APB 一測回，讀數至秒。</li>
-            <li><b>水準儀直接水準測量</b>：假設 C 點樁頂高程為 30.000m，於 C、D 中間設轉點 TP1 往測，再設轉點 TP2 返測（TP2 不可與 TP1 同一位置且不可固定），計算往返高程差較差的絕對值及 D 點平均高程。</li>
-            <li><b>捲尺直接距離測量</b>：於 F 點利用捲尺測量 E、F 兩點間之水平距離三次（服務人員將捲尺零公尺對準 E 點），計算平均值。</li>
-          </ol>
+          <p>丙級術科只有一份試題，包含三部分。為方便練習，三部分可分開練習，也可做完整試題模擬檢定。</p>
           <p class="note">總分 100 分，60 分（含）以上及格。本網站之答案紙依應檢參考資料之格式呈現。</p></div>
+        <h3 style="margin:22px 0 4px">請選擇練習題目</h3>
+        <div class="modes">
+          ${G.TASKS.map(t => `<a class="card" href="#/t${t.id}"><div class="no">${t.no}<span class="badge">練習 ${t.time} 分鐘</span><span class="badge">${maxOf(t)} 分</span></div>
+            <div class="tt">${esc(t.title)}</div><p>${t.parts.length > 1 ? '三部分合併，依官方檢定時間 45 分鐘、總分 100 分模擬完整檢定。' : PART_DESC[t.parts[0]]}</p></a>`).join('')}
+        </div>
+        ${siteFoot()}
+      </div>`;
+  }
+  function viewMode(t, fieldMsg) {
+    document.title = `${t.title}｜測量丙級術科練習`;
+    const single = t.parts.length === 1;
+    $('#app').innerHTML = `
+      <div class="bar"><div class="bar-in"><a class="btn" href="#/">← 選擇題目</a><h1 class="serif">${esc(t.title)}<small>${t.no}　${single ? `練習時間 ${t.time} 分鐘　本部分 ${maxOf(t)} 分` : `試題編號 ${t.code}　檢定時間 ${t.time} 分鐘（含觀測與計算）`}</small></h1>
+        <button class="btn" id="btnPrintBlank">列印空白${single ? '記錄表' : '答案紙'}</button></div></div>
+      <div class="wrap">
+        <div class="paper"><div class="paper-title">試題說明</div>
+          <p class="note" style="text-align:center;margin-top:-4px">依「(1100701 起報檢者適用) 丙級測量技術士術科」應檢參考資料</p>
+          <ol class="parts">${t.parts.map(k => `<li value="${['ang', 'lev', 'dist'].indexOf(k) + 1}"><b>${esc(G.TASKS.find(x => x.parts.length === 1 && x.parts[0] === k).title)}</b>：${PART_DESC[k]}</li>`).join('')}</ol>
+          <p class="note">${single ? `本部分為分項練習：評審項目依官方評審表中與本部分相關的項目（滿分 ${maxOf(t)} 分），結果另換算為百分制供參考；練習時間為建議值，非官方規定。` : '總分 100 分，60 分（含）以上及格。本網站之答案紙依應檢參考資料之格式呈現。'}</p></div>
         <h3 style="margin:22px 0 4px">請選擇練習模式</h3>
         ${fieldMsg ? '<p class="fatal" style="background:#fff">第一人稱外業模式目前無法使用。</p>' : ''}
         <div class="modes">
@@ -147,16 +170,16 @@
       ? `${timerHTML}<button class="btn" id="btnNew">${mode === 'field' ? '重新開始（新場地）' : '重新出題'}</button><button class="btn primary" id="btnSubmit"${st.submitted ? ' disabled' : ''}>${st.submitted ? '已交卷' : '交卷'}</button>`
       : `<button class="btn" id="btnRestart">重新開始</button><button class="btn primary" id="btnSubmit"${st.submitted ? ' disabled' : ''}>${st.submitted ? '已完成' : '完成並檢核'}</button>`;
     $('#app').innerHTML = `
-      <div class="bar"><div class="bar-in"><a class="btn" href="#/">← 選擇模式</a>
+      <div class="bar"><div class="bar-in"><a class="btn" href="#/t${t.id}">← 選擇模式</a>
         <h1 class="serif">${esc(taskName(t))}<small>${MODES[mode].name}${mode === 'guide' ? '（官方範例數據）' : ''}</small></h1>${actions}</div></div>
       <div class="papers form-root" id="papers">
         <div id="rubricSlot"></div>
         <section class="paper">${hdr('試題')}
-          <p><b>檢定時間：</b>${t.time} 分鐘（含觀測與計算）</p>
+          <p><b>${t.parts.length > 1 ? '檢定時間' : '練習時間'}：</b>${t.time} 分鐘（含觀測與計算）</p>
           <p><b>題目：</b>${esc(t.intro.goal)}</p>
           <p class="note">${mode === 'field' ? '外業已結束，觀測記錄表為你在外業時親自記錄的讀數（不得再修改）；已知資料已發給。請完成記錄表中的計算欄位及答案紙後交卷。' : mode === 'calc' ? '本模式為純內業練習：外業觀測數據已由系統隨機生成並填入記錄表，請依已知資料完成記錄表中的計算欄位及答案紙。' : '教學引導：下方面板會依計算順序指出目前要填的格子（黃色），並以藍色標示會用到的資料。可自行填寫，或按「顯示答案」。'}</p>
         </section>
-        <section class="paper">${hdr('答案紙')}<p class="caution">注意事項：角度四捨五入計算至秒，高程計算至 0.001m，距離計算至 0.001m。　假設 C 點樁頂高程 HC = 30.000m。</p>${block(t.layout.filter(s => s.role !== 'known' && !fieldOnly(s)))}
+        <section class="paper">${hdr('答案紙')}<p class="caution">注意事項：${esc(t.caution)}</p>${block(t.layout.filter(s => s.role !== 'known' && !fieldOnly(s)))}
           <h3>計算式（請列出公式及計算過程）</h3><textarea class="calc-area" id="calcText" ${st.submitted ? 'readonly' : ''} placeholder="在此列出計算式（不列入系統評分，練習書寫用）">${esc(st.calcText || '')}</textarea>
         </section>
       </div>
@@ -459,7 +482,7 @@
       <tr><td class="k">應檢人姓名</td><td></td><td class="k">准考證號碼</td><td></td><td class="k">檢定日期</td><td>　　年　　月　　日</td></tr></table>`;
     const blk = role => t.layout.filter(s => s.role === role).map(s => `<h3>${esc(s.title)}</h3>${F.renderSection(s, { blank: true }).html}`).join('');
     $('#printArea').innerHTML = `
-      <section class="paper">${hdr('答案紙')}<p class="caution">注意事項：角度四捨五入計算至秒，高程計算至 0.001m，距離計算至 0.001m。</p>${t.layout.filter(s => s.role !== 'known').map(s => `<h3>${esc(s.title)}</h3>${F.renderSection(s, { blank: true }).html}`).join('')}</section>`;
+      <section class="paper">${hdr('答案紙')}<p class="caution">注意事項：${esc(t.caution)}</p>${t.layout.filter(s => s.role !== 'known').map(s => `<h3>${esc(s.title)}</h3>${F.renderSection(s, { blank: true }).html}`).join('')}</section>`;
     document.body.classList.add('printing');
     setTimeout(() => window.print(), 60);
   }
