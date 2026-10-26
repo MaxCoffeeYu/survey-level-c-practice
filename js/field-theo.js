@@ -2,7 +2,7 @@
  * field-theo.js — 第一人稱外業：經緯儀與捲尺（沿用乙級第三版）
  *
  * 場地由各題已驗證的隨機產生器建立（坐標、高程、角度與評分一致）。
- * 經緯儀：電子顯示 HR（水平角）與 V（天頂距），可 0SET、正倒鏡切換；
+ * 經緯儀：1.1 版起使用共用的 DT-200 介面（theodolite.js，同乙級 3.1 版）；
  *         含少量 2C 誤差與指標差，學生需自行照準（粗動拖曳、微動按鈕）。
  * 覘標：鋼釘上的「▼」覘標（尖端對準鋼釘），或三腳架上的稜鏡（試題三、四）。
  * 捲尺：50m 鋼捲尺，最小刻劃 2mm；每次量測略有差異（往返兩次）。
@@ -14,7 +14,6 @@
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
   const task = id => G.TASKS.find(t => t.id === id);
-  const K = 0.4;          // 望遠鏡畫面：每角秒 0.4 px（600 px ≈ 25′）
   const r3 = x => S.rnd(x, 3);
   const P = (x, y, H, label, t = 0) => ({ x, y, H, label, t, kind: 'stake' });
   const ST = (x, y, label) => ({ x, y, label });
@@ -28,7 +27,7 @@
     const s = sc.stations[id];
     const HI = sc.stationHI && sc.stationHI[id] !== undefined ? sc.stationHI[id] : FI().terrain(sc, s.x, s.y) + S.rand(1.40, 1.60);
     if (!sc.instErr) sc.instErr = { c: S.noise(5), i: S.noise(9) };   // 同一部儀器，誤差固定
-    return { HI, ori: S.rand(0, 360), face: 'L', c: sc.instErr.c, i: sc.instErr.i };
+    return G.DT.initCur({ HI, ori: S.rand(0, 360), face: 'L', c: sc.instErr.c, i: sc.instErr.i });
   }
   /** 目標（鋼釘頂覘標尖端或稜鏡中心）之方位角與天頂距（真值） */
   function trueDir(id) {
@@ -38,7 +37,7 @@
     const Z = 90 - Math.atan2((p.H + (p.t || 0)) - f.cur.HI, d) * S.R2D;
     return { d, az, Z };
   }
-  /** 儀器顯示值：HR、V（含 2C、指標差與照準偏差） */
+  /** 照準某目標時（偏差 ax、ay 角秒）的度盤讀數 HR、V（含 2C、指標差），供測試驗算 */
   function display(id, ax, ay) {
     const f = fs(), cur = f.cur, { az, Z } = trueDir(id);
     const azp = az + ax / 3600, Zp = Z + ay / 3600;
@@ -49,7 +48,6 @@
 
   /* ---------------- 全景中的覘標／稜鏡 ---------------- */
   function panoTarget(p, id, x, yOf, gH, d, FOC) {
-    const f = fs();
     const m = v => v / d * FOC;
     let g = '';
     if (p.t > 0) {
@@ -58,7 +56,7 @@
       g += `<g stroke="#555" stroke-width="${Math.max(1.2, m(0.02))}"><line x1="${x - w}" y1="${yb}" x2="${x}" y2="${yt}"/><line x1="${x + w}" y1="${yb}" x2="${x}" y2="${yt}"/><line x1="${x}" y1="${yb + 2}" x2="${x}" y2="${yt}"/></g>`;
       const pw = Math.max(9, m(0.14));
       g += `<rect x="${x - pw / 2}" y="${yt - pw}" width="${pw}" height="${pw}" fill="#ffd400" stroke="#222"/><circle cx="${x}" cy="${yt - pw / 2}" r="${pw * 0.28}" fill="#333"/>`;
-    } else if (f.aimed === id) {
+    } else if (p.kind === 'stake') {   // 丙級：尺墊位置不立覘標
       // 助手持覘標，尖端對準鋼釘
       const tip = yOf(p.H), tw = Math.max(8, m(0.1)), th = Math.max(8, m(0.09));
       g += `<line x1="${x}" y1="${tip - th}" x2="${x}" y2="${yOf(p.H + 1.6)}" stroke="#666" stroke-width="${Math.max(2, m(0.02))}"/>
@@ -69,90 +67,50 @@
     return g;
   }
 
-  /* ---------------- 經緯儀望遠鏡 ---------------- */
-  let sco = null;
+  /* ---------------- 經緯儀望遠鏡（共用 DT-200 介面，見 theodolite.js） ---------------- */
+  /** 點選全景中的目標：以照準器粗略對準後開啟望遠鏡 */
   function aim(id) {
-    const f = fs();
-    const { d } = trueDir(id);
-    sco = { id, ax: S.pick([-1, 1]) * S.rand(150, 420), ay: S.pick([-1, 1]) * S.rand(120, 360) };
+    const { d, az, Z } = trueDir(id);
     if (d > 120) A().toast('距離過遠，請確認目標。');
-    renderScope();
-    void f;
+    G.DT.aimRough(az, Z);
+    openScope();
   }
-  function renderScope() {
-    const f = fs(), p = f.scene.pts[sco.id];
-    $('#ovl').innerHTML = `<div class="ovl scope-ovl"><div class="scope-wrap">
-      <div class="scope-h">照準：<b>${esc(FI().ptLabel(p))}</b>${p.t > 0 ? '（稜鏡中心）' : '（覘標尖端／鋼釘中心）'}　拖曳＝粗動，按鈕＝微動</div>
-      <div class="scope-c" id="scopeC"></div>
-      <div class="lcd" id="lcd"></div>
-      <div class="scope-b">
-        <span class="mv"><button class="btn" data-mv="-20,0">◀◀</button><button class="btn" data-mv="-1,0">◀</button><button class="btn" data-mv="1,0">▶</button><button class="btn" data-mv="20,0">▶▶</button></span>
-        <span class="mv"><button class="btn" data-mv="0,-20">▲▲</button><button class="btn" data-mv="0,-1">▲</button><button class="btn" data-mv="0,1">▼</button><button class="btn" data-mv="0,20">▼▼</button></span>
-      </div>
-      <div class="scope-b"><button class="btn" id="b0set">0SET 置零</button><button class="btn" id="bFace">${f.cur.face === 'L' ? '縱轉為倒鏡' : '縱轉為正鏡'}</button>
-        <button class="btn" id="sBook">記錄本</button><button class="btn primary" id="sBack">返回全景</button></div>
-      <div class="note scope-note">▲▼◀▶ 每按一次轉動 1″（雙箭頭 20″）。縱絲與橫絲交點對準覘標尖端（或稜鏡中心）後，讀取 HR（水平角）與 V（天頂距）記錄。</div>
-    </div></div>`;
-    drawScope();
-    const c = $('#scopeC'); let down = null;
-    c.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, ax: sco.ax, ay: sco.ay }; c.setPointerCapture(e.pointerId); });
-    c.addEventListener('pointermove', e => {
-      if (!down) return;
-      const k = 600 / c.getBoundingClientRect().width / K;  // 每螢幕 px 對應角秒
-      // 拖曳畫面＝把目標拉到十字絲：向右拖 → 望遠鏡左轉
-      sco.ax = down.ax - (e.clientX - down.x) * k; sco.ay = down.ay - (e.clientY - down.y) * k;
-      drawScope();
+  function openScope() {
+    G.DT.openScope({
+      title: `經緯儀望遠鏡（${esc(fs().scene.stations[fs().cur.id].label)}）　縱絲與橫絲交點對準覘標尖端或稜鏡中心`,
+      items: scopeItems,
+      buttons: '<button class="btn" id="sBook">記錄本</button>',
+      bindButtons: () => { $('#sBook').onclick = () => FI().openBook(true); },
+      note: '照準後讀取 HR（或 HL）與 V 記錄。'
     });
-    c.addEventListener('pointerup', () => { down = null; });
-    $$('[data-mv]').forEach(b => b.onclick = () => { const [dx, dy] = b.dataset.mv.split(',').map(Number); sco.ax += dx; sco.ay += dy; drawScope(); });
-    $('#b0set').onclick = () => {
-      const cur = f.cur, { azp } = display(sco.id, sco.ax, sco.ay);
-      cur.ori = cur.face === 'L' ? azp + cur.c / 3600 : azp + 180 - cur.c / 3600;
-      A().saveDraft(); drawScope(); A().toast('水平度盤已置零');
-    };
-    $('#bFace').onclick = () => {
-      f.cur.face = f.cur.face === 'L' ? 'R' : 'L';
-      sco.ax = S.pick([-1, 1]) * S.rand(120, 300); sco.ay = S.pick([-1, 1]) * S.rand(100, 260);  // 縱轉後需重新照準
-      A().saveDraft(); renderScope(); A().toast(f.cur.face === 'L' ? '已縱轉為正鏡，請重新照準' : '已縱轉為倒鏡，請重新照準');
-    };
-    $('#sBook').onclick = () => FI().openBook(true);
-    $('#sBack').onclick = () => { FI().closeOverlays(); sco = null; };
   }
-  function drawScope() {
-    const f = fs(), p = f.scene.pts[sco.id];
-    const { d, Z } = trueDir(sco.id);
-    const Zp = Z + sco.ay / 3600;
-    const tx = 300 - sco.ax * K, ty = 300 - sco.ay * K;
-    const m = v => v / d * S.RHO * K;          // 公尺 → 畫面 px
-    const yh = 300 + (90 - Zp) * 3600 * K;      // 地平線
-    let g = `<defs><clipPath id="tc"><circle cx="300" cy="300" r="292"/></clipPath>
-      <radialGradient id="tv" cx="50%" cy="50%" r="50%"><stop offset="0.8" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.5"/></radialGradient></defs>
-      <rect width="600" height="600" fill="#111"/><g clip-path="url(#tc)">
-      <rect width="600" height="600" fill="#cfe1ef"/><rect y="${Math.min(600, Math.max(-10, yh))}" width="600" height="${Math.max(0, 600 - yh) + 20}" fill="#a9c58b"/>`;
-    if (p.t > 0) {
-      // 稜鏡：三腳架＋覘標板，中心為照準點
-      const yg = ty + m(p.t), pw = m(0.13);
-      g += `<g stroke="#555" stroke-width="${Math.max(2, m(0.025))}"><line x1="${tx - m(0.45)}" y1="${yg}" x2="${tx}" y2="${ty + m(0.12)}"/><line x1="${tx + m(0.45)}" y1="${yg}" x2="${tx}" y2="${ty + m(0.12)}"/></g>
-        <rect x="${tx - m(0.02)}" y="${ty}" width="${m(0.04)}" height="${m(0.12)}" fill="#444"/>
-        <rect x="${tx - pw / 2}" y="${ty - pw / 2}" width="${pw}" height="${pw}" fill="#ffd400" stroke="#222" stroke-width="1"/>
-        <path d="M${tx - pw / 2} ${ty - pw / 2} L${tx} ${ty} L${tx - pw / 2} ${ty + pw / 2} Z M${tx + pw / 2} ${ty - pw / 2} L${tx} ${ty} L${tx + pw / 2} ${ty + pw / 2} Z" fill="#222"/>
-        <circle cx="${tx}" cy="${ty}" r="${m(0.032)}" fill="#6a6a6a" stroke="#111"/><circle cx="${tx}" cy="${ty}" r="${m(0.012)}" fill="#bfe3ff"/>`;
-    } else {
-      // 木樁＋鋼釘，覘標「▼」尖端對準鋼釘中心
-      const tw = m(0.08), th = m(0.07);
-      g += `<rect x="${tx - m(0.018)}" y="${ty + m(0.006)}" width="${m(0.036)}" height="${m(0.3)}" fill="#c8a165" stroke="#6b4f2a"/>
-        <rect x="${tx - m(0.003)}" y="${ty}" width="${m(0.006)}" height="${m(0.01)}" fill="#999"/>
-        <line x1="${tx}" y1="${ty - th}" x2="${tx}" y2="${ty - th - m(1.2)}" stroke="#666" stroke-width="${Math.max(2, m(0.02))}"/>
-        <path d="M${tx - tw / 2} ${ty - th} L${tx} ${ty - th} L${tx} ${ty} Z" fill="#d32f2f"/><path d="M${tx} ${ty - th} L${tx + tw / 2} ${ty - th} L${tx} ${ty} Z" fill="#fff" stroke="#d32f2f"/>`;
+  /** 望遠鏡中可見的目標：稜鏡（三腳架）或鋼釘上的「▼」覘標 */
+  function scopeItems() {
+    const f = fs(), sc = f.scene, s = sc.stations[f.cur.id], out = [];
+    for (const id in sc.pts) {
+      const p = sc.pts[id];
+      if (p.kind !== 'stake' || Math.hypot(p.x - s.x, p.y - s.y) < 2) continue;
+      const { d, az, Z } = trueDir(id);
+      out.push({ d, az, Z, label: FI().ptLabel(p), svg: (tx, ty, m) => p.t > 0 ? prismSVG(tx, ty, m, p.t) : nailSVG(tx, ty, m) });
     }
-    g += `<circle cx="300" cy="300" r="300" fill="url(#tv)"/></g>
-      <g stroke="#111" stroke-width="1.2"><line x1="300" y1="8" x2="300" y2="592"/><line x1="8" y1="300" x2="592" y2="300"/>
-      <line x1="294" y1="8" x2="294" y2="220"/><line x1="306" y1="8" x2="306" y2="220"/></g>
-      <circle cx="300" cy="300" r="292" fill="none" stroke="#000" stroke-width="10"/>`;
-    $('#scopeC').innerHTML = `<svg viewBox="0 0 600 600" width="100%" height="100%">${g}</svg>`;
-    const dsp = display(sco.id, sco.ax, sco.ay);
-    $('#lcd').innerHTML = `<div class="lcd-in"><span class="lcd-face">${f.cur.face === 'L' ? '正鏡' : '倒鏡'}</span>
-      <div><b>V</b>　${S.fmtDMS(dsp.V)}</div><div><b>HR</b>　${S.fmtDMS(dsp.HR)}</div></div>`;
+    return out;
+  }
+  function prismSVG(tx, ty, m, t) {
+    // 稜鏡：三腳架＋覘標板，中心為照準點
+    const yg = ty + m(t), pw = m(0.13);
+    return `<g stroke="#555" stroke-width="${Math.max(2, m(0.025))}"><line x1="${tx - m(0.45)}" y1="${yg}" x2="${tx}" y2="${ty + m(0.12)}"/><line x1="${tx + m(0.45)}" y1="${yg}" x2="${tx}" y2="${ty + m(0.12)}"/></g>
+      <rect x="${tx - m(0.02)}" y="${ty}" width="${m(0.04)}" height="${m(0.12)}" fill="#444"/>
+      <rect x="${tx - pw / 2}" y="${ty - pw / 2}" width="${pw}" height="${pw}" fill="#ffd400" stroke="#222" stroke-width="1"/>
+      <path d="M${tx - pw / 2} ${ty - pw / 2} L${tx} ${ty} L${tx - pw / 2} ${ty + pw / 2} Z M${tx + pw / 2} ${ty - pw / 2} L${tx} ${ty} L${tx + pw / 2} ${ty + pw / 2} Z" fill="#222"/>
+      <circle cx="${tx}" cy="${ty}" r="${m(0.032)}" fill="#6a6a6a" stroke="#111"/><circle cx="${tx}" cy="${ty}" r="${m(0.012)}" fill="#bfe3ff"/>`;
+  }
+  function nailSVG(tx, ty, m) {
+    // 木樁＋鋼釘，覘標「▼」尖端對準鋼釘中心
+    const tw = m(0.08), th = m(0.07);
+    return `<rect x="${tx - m(0.018)}" y="${ty + m(0.006)}" width="${m(0.036)}" height="${m(0.3)}" fill="#c8a165" stroke="#6b4f2a"/>
+      <rect x="${tx - m(0.003)}" y="${ty}" width="${m(0.006)}" height="${m(0.01)}" fill="#999"/>
+      <line x1="${tx}" y1="${ty - th}" x2="${tx}" y2="${ty - th - m(1.2)}" stroke="#666" stroke-width="${Math.max(2, m(0.02))}"/>
+      <path d="M${tx - tw / 2} ${ty - th} L${tx} ${ty - th} L${tx} ${ty} Z" fill="#d32f2f"/><path d="M${tx} ${ty - th} L${tx + tw / 2} ${ty - th} L${tx} ${ty} Z" fill="#fff" stroke="#d32f2f"/>`;
   }
 
   /* ---------------- 捲尺量測（最小刻劃 2mm） ---------------- */
@@ -241,5 +199,5 @@
     return `<svg viewBox="0 0 ${W} ${H}" width="100%">${g}</svg>`;
   }
 
-  G.FIELD_THEO = { SCENES, newSetup, aim, panoTarget, tapeMenu, display, trueDir, tapeSVG, tapeValue };
+  G.FIELD_THEO = { SCENES, newSetup, aim, openScope, panoTarget, tapeMenu, display, trueDir, tapeSVG, tapeValue };
 })(window);

@@ -31,7 +31,7 @@
       const trueAng = S.norm360(S.azimuth(0, 0, pB.E, pB.N) - S.azimuth(0, 0, pA.E, pA.N));
       Object.assign(perfect, { A_L: 0, A_R: 180, B_L: trueAng, B_R: S.norm360(trueAng + 180) });
       override.ang = S.roundSec(trueAng);
-      hint.push('於 P 點整置經緯儀，正鏡照準 A（0SET）、照準 B，倒鏡照準 B、A。');
+      hint.push('於 P 點整置經緯儀並按 POWER 開機：正鏡照準 A，連按兩次 0 SET 置零，順時針照準 B；縱轉望遠鏡為倒鏡，照準 B、A。');
     }
     if (has('lev')) {
       pts.C = { x: -60, y: -110, H: HC, label: 'C', kind: 'stake' };

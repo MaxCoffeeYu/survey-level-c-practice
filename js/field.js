@@ -140,8 +140,7 @@
           </div>
           <div class="fld-map" id="miniMap" title="點選開啟場地圖並移站"></div>
           ${hasStations() ? '<button class="btn fld-move" id="btnMove">移站／選擇測站</button>' : ''}
-          ${f.scene.tapes && f.scene.tapes.length ? '<button class="btn fld-tape" id="btnTape">捲尺量測</button>' : ''}
-          ${f.scene.slots ? '<button class="btn fld-plate" id="btnPlate">放置尺墊</button>' : ''}
+          <div class="stk-tools">${kindOf(f) === 'theo' ? '<button class="btn" id="btnScope">望遠鏡</button>' : ''}${f.scene.tapes && f.scene.tapes.length ? '<button class="btn" id="btnTape">捲尺量測</button>' : ''}${f.scene.slots ? '<button class="btn" id="btnPlate">放置尺墊</button>' : ''}</div>
           ${f.scene.kind === 'stake' ? SK().buttons() : ''}
           <button class="fld-book" id="btnBook" title="記錄本"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z"/><path d="M5 17a2 2 0 0 1 2-2h12"/><path d="M9 7h6M9 10h6"/></svg><span>${f.scene.kind === 'stake' ? '放樣資料' : '記錄本'}</span></button>
           <div class="fld-turn"><button class="btn" id="btnL">◀ 左轉</button>${isTheo(f) ? '<button class="btn" id="btnL1">◀ 1°</button>' : ''}<span id="hdg"></span>${isTheo(f) ? '<button class="btn" id="btnR1">1° ▶</button>' : ''}<button class="btn" id="btnR">右轉 ▶</button></div>
@@ -159,8 +158,9 @@
     $('#miniMap').onclick = () => openMap(false);
     $('#btnBook').onclick = () => (f.scene.kind === 'stake' ? SK().card() : openBook());
     if (f.scene.kind === 'stake') SK().bind();
-    $('#btnL').onclick = () => turn(-20);
-    $('#btnR').onclick = () => turn(20);
+    if ($('#btnScope')) $('#btnScope').onclick = () => (f.cur ? TH().openScope() : A().toast('請先選擇測站並整置儀器'));
+    $('#btnL').onclick = () => turn(-40);
+    $('#btnR').onclick = () => turn(40);
     if ($('#btnL1')) { $('#btnL1').onclick = () => turn(-1); $('#btnR1').onclick = () => turn(1); }
     $$('[data-phase]').forEach(b => b.onclick = () => { f.phase = b.dataset.phase; app.saveDraft(); renderField(); app.toast(f.phase === 'f' ? '目前作業：往測' : '目前作業：返測（轉點尺墊已重新擺置）'); });
     bindPano();
@@ -169,23 +169,10 @@
   }
   function turn(da) { const f = fs(); f.az = S.norm360(f.az + da); drawPano(); drawMini(); A().saveDraft(); }
   const isTheo = f => kindOf(f) === 'theo' || kindOf(f) === 'stake';
-  /** 全景中央＝望遠鏡指向；更新儀器顯示 HR、V（放樣時同步望遠鏡指向並遵守 HOLD） */
+  /** 全景中央＝望遠鏡指向；全景轉動即儀器水平轉動（遵守 HOLD），右上角螢幕與面板同步 */
   function panoInstrument(f) {
-    const box = $('#panoLcd'); if (!box || !f.cur) { if (box) box.innerHTML = ''; return ''; }
-    const c = f.cur;
-    let HR, V, hold = false;
-    if (f.scene.kind === 'stake') {
-      if (!f.point) f.point = { az: f.az, Z: 92 };
-      const d = S.wrap180(f.az - f.point.az) * 3600;
-      if (Math.abs(d) > 0.01) SK()._.turn(d, 0);
-      HR = c.hold ? c.heldHR : SK()._.curHR(); hold = !!c.hold;
-      V = S.roundSec(S.norm360(c.face === 'L' ? f.point.Z + c.i / 3600 : 360 - f.point.Z + c.i / 3600));
-    } else {
-      HR = S.roundSec(c.face === 'L' ? S.norm360(f.az - c.ori + c.c / 3600) : S.norm360(f.az - c.ori + 180 - c.c / 3600));
-      V = S.roundSec(S.norm360(c.face === 'L' ? 90 + c.i / 3600 : 270 + c.i / 3600));
-    }
-    box.innerHTML = `<div class="lcd-in"><span class="lcd-face">${hold ? 'HOLD' : (c.face === 'L' ? '正鏡' : '倒鏡')}</span><div><b>V</b>　${S.fmtDMS(V)}</div><div><b>HR</b>　${S.fmtDMS(HR)}</div></div>
-      <div class="pano-lcd-note">畫面中央縱線＝望遠鏡指向（全景轉動約 0.1°／像素，精確對準請開望遠鏡用微動鈕）</div>`;
+    if (!f.cur) { const box = $('#panoLcd'); if (box) box.innerHTML = ''; return ''; }
+    G.DT.panoSync(f);
     return `<line x1="${W / 2}" y1="0" x2="${W / 2}" y2="${HH}" stroke="#111" stroke-width="1" stroke-dasharray="6 5" opacity="0.6"/><line x1="${W / 2 - 14}" y1="${HOR}" x2="${W / 2 + 14}" y2="${HOR}" stroke="#111" stroke-width="1.2"/>`;
   }
 
@@ -280,7 +267,8 @@
       if (!down) return;
       const dx = e.clientX - down.x;
       if (Math.abs(dx) > 5) moved = true;
-      if (moved) { const scale = FOVE / svg.getBoundingClientRect().width; fs().az = S.norm360(down.az - dx * scale); drawPano(); drawMini(); }
+      // 1.1：轉動速度為拖曳距離的 2 倍（同乙級 3.1 版）
+      if (moved) { const scale = 2 * FOVE / svg.getBoundingClientRect().width; fs().az = S.norm360(down.az - dx * scale); drawPano(); drawMini(); }
     });
     svg.addEventListener('pointerup', e => {
       const was = down; down = null;
@@ -352,6 +340,7 @@
       // 面向最近的樁位
       let best = null; for (const pid in f.scene.pts) { const p = f.scene.pts[pid]; const d = Math.hypot(p.x - s.x, p.y - s.y); if (d >= 2 && (!best || d < best.d)) best = { d, p }; }
       if (best) f.az = S.norm360(Math.atan2(best.p.x - s.x, best.p.y - s.y) * S.R2D);
+      f.point = { az: f.az, Z: 90 };
       A().saveDraft(); closeOverlays(); renderField();
       A().toast(`已於 ${s.label} 完成整置`);
     };
@@ -361,7 +350,7 @@
   let scope = null;
   function aimAt(id) {
     const f = fs(); if (!f.cur) return;
-    if (kindOf(f) === 'theo') { f.aimed = id; drawPano(); TH().aim(id); return; }
+    if (kindOf(f) === 'theo') { f.aimed = id; TH().aim(id); drawPano(); return; }
     const p0 = f.scene.pts[id];
     if (p0.kind === 'slot' && !plateAt(p0)) { A().toast('此處沒有尺墊，請先用「放置尺墊」放好再立尺。'); return; }
     if (p0.t > 0) { A().toast('此為經緯儀用的覘標，水準測量請照準樁位。'); return; }
